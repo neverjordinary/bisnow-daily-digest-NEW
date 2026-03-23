@@ -2,7 +2,7 @@ name: Daily Sales Digest
 
 on:
   schedule:
-    # Mon-Fri at 6:30 AM Eastern (11:30 UTC during EDT, 10:30 UTC during EST)
+    # Mon-Fri at 6:30 AM Eastern (10:30 UTC during EDT)
     - cron: '30 10 * * 1-5'
   workflow_dispatch: # Manual trigger from GitHub UI
 
@@ -25,4 +25,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           DIGEST_EMAIL: ${{ secrets.DIGEST_EMAIL }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
         run: node scripts/daily-digest.mjs
