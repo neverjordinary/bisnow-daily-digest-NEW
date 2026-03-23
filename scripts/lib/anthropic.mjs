@@ -51,13 +51,29 @@ export function extractText(response) {
 }
 
 export function parseJSON(text) {
-  const jsonMatch =
-    text.match(/```(?:json)?\s*([\s\S]*?)```/) ||
-    text.match(/(\{[\s\S]*\})/) ||
-    text.match(/(\[[\s\S]*\])/);
+  const candidates = [
+    text.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1],
+    text.match(/(\{[\s\S]*\})/)?.[1],
+    text.match(/(\[[\s\S]*\])/)?.[1],
+    text,
+  ].filter(Boolean);
 
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[1].trim());
+  for (let candidate of candidates) {
+    try {
+      return JSON.parse(candidate.trim());
+    } catch {
+      try {
+        const cleaned = candidate
+          .replace(/,\s*([}\]])/g, '$1') // remove trailing commas
+          .replace(/[\u201C\u201D]/g, '"') // smart double quotes
+          .replace(/[\u2018\u2019]/g, "'") // smart single quotes
+          .trim();
+        return JSON.parse(cleaned);
+      } catch {
+        // keep trying
+      }
+    }
   }
-  return JSON.parse(text.trim());
+
+  throw new Error('Unable to parse JSON response from Anthropic');
 }
