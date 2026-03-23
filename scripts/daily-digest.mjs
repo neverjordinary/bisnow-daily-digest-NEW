@@ -510,7 +510,7 @@ async function main() {
     const research = await researchMeeting(meeting, contactsToUse);
     results.push({ meeting, research });
 
-    await sleep(20000);
+    await sleep(200000);
   }
 
   log(`Researched ${results.length} meetings`);
