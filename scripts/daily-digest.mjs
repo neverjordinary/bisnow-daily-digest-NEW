@@ -24,6 +24,8 @@ const EXCLUDED_DOMAINS = new Set([
   'google.com',
   'gmail.com',
   'yahoo.com',
+  'morningbrew.com',
+  'enverus.com',
   'outlook.com',
   'hotmail.com',
   'icloud.com',
