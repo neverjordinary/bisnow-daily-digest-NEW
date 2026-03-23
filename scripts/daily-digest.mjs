@@ -589,7 +589,7 @@ async function main() {
     const research = await researchMeeting(meeting, contactsToUse);
     results.push({ meeting, research });
 
-    await sleep(200000);
+    await sleep(90000);
   }
 
   log(`Researched ${results.length} meetings`);
