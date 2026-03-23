@@ -15,13 +15,12 @@ export async function callAnthropicAPI({ apiKey, system, userMessage, tools = []
     body.tools = tools;
   }
 
-  const headers: {
-  'x-api-key': process.env.ANTHROPIC_API_KEY,
-  'anthropic-version': '2023-06-01',
-  'content-type': 'application/json'
-};
+  const headers = {
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'content-type': 'application/json',
+  };
 
-  // Only add beta header if using web search (required for web_search tool)
   if (tools.some(t => t.type?.startsWith('web_search'))) {
     headers['anthropic-beta'] = 'web-search-2025-03-05';
   }
@@ -49,7 +48,11 @@ export function extractText(response) {
 }
 
 export function parseJSON(text) {
-  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) || text.match(/(\{[\s\S]*\})/) || text.match(/(\[[\s\S]*\])/);
+  const jsonMatch =
+    text.match(/```(?:json)?\s*([\s\S]*?)```/) ||
+    text.match(/(\{[\s\S]*\})/) ||
+    text.match(/(\[[\s\S]*\])/);
+
   if (jsonMatch) {
     return JSON.parse(jsonMatch[1].trim());
   }
