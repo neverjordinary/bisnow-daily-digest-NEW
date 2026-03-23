@@ -25,7 +25,8 @@ export async function callAnthropicAPI({ apiKey, system, userMessage, tools = []
     headers['anthropic-beta'] = 'web-search-2025-03-05';
   }
 
-  const response = await fetch(ANTHROPIC_API_URL, {
+  const response = await console.error('DEBUG headers =', headers);
+console.error('DEBUG file =', import.meta.url); fetch(ANTHROPIC_API_URL, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
