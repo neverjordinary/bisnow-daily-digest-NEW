@@ -315,7 +315,10 @@ Rules:
 - keep recent_news to max 2
 - keep best_fit_events to max 2
 - keep recommended_products to max 2
-- be brief
+- do not include markdown
+- do not include trailing commas
+- if unsure, use empty arrays or empty strings
+- keep all fields short
 - return JSON only`;
 
   try {
@@ -324,51 +327,125 @@ Rules:
       system,
       userMessage,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      maxTokens: 500,
+      maxTokens: 350,
     });
 
     const text = extractText(response);
-    log(`RAW RESPONSE FOR ${domain}: ${text}`);
-    try {
-  const result = parseJSON(text);
-  log(`  ${domain}: score ${result.match_score ?? 0}, ${result.recommended_products?.length || 0} products`);
-  return result;
-} catch (parseErr) {
-  log(`  Failed to parse JSON for ${domain}: ${parseErr.message}`);
-  log(`  Raw text for ${domain}: ${text}`);
 
-  return {
-    contacts: contactsToUse.map(c => ({
-      name: c.name || 'Unknown',
-      title: 'Unknown',
-      company: domain,
-      linkedin_url: '',
-      email: c.email,
-    })),
-    company: {
-      name: domain,
-      description: text.slice(0, 500) || 'Research returned non-JSON text',
-      hq: 'Unknown',
-      size_estimate: 'Unknown',
-      cre_relevance: 'Unknown',
-      florida_presence: 'Unknown',
-      primary_markets: [],
-    },
-    sponsorship_intel: {
-      past_cre_sponsorships: [],
-      current_sponsorships: [],
-      advertising_evidence: [],
-      past_bisnow_sponsor: false,
-    },
-    recent_news: [],
-    match_score: 0,
-    match_reasoning: 'Claude returned non-JSON output',
-    best_fit_events: [],
-    recommended_products: [],
-    national_opportunity: null,
-    target_audience: { primary: [], secondary: [], pitch_rationale: '' },
-    icebreaker: '',
-  };
+    try {
+      const result = parseJSON(text);
+      log(`  ${domain}: score ${result.match_score ?? 0}, ${result.recommended_products?.length || 0} products`);
+      return result;
+    } catch (parseErr) {
+      log(`  Failed to parse JSON for ${domain}: ${parseErr.message}`);
+      log(`  Raw text for ${domain}: ${text}`);
+
+      return {
+        contacts: contactsToUse.map(c => ({
+          name: c.name || 'Unknown',
+          title: 'Unknown',
+          company: domain,
+          linkedin_url: '',
+          email: c.email,
+        })),
+        company: {
+          name: domain,
+          description: text.slice(0, 500) || 'Research returned non-JSON text',
+          hq: 'Unknown',
+          size_estimate: 'Unknown',
+          cre_relevance: 'Unknown',
+          florida_presence: 'Unknown',
+          primary_markets: [],
+        },
+        sponsorship_intel: {
+          past_cre_sponsorships: [],
+          current_sponsorships: [],
+          advertising_evidence: [],
+          past_bisnow_sponsor: false,
+        },
+        recent_news: [],
+        match_score: 0,
+        match_reasoning: 'Claude returned non-JSON output',
+        best_fit_events: [],
+        recommended_products: [],
+        national_opportunity: null,
+        target_audience: { primary: [], secondary: [], pitch_rationale: '' },
+        icebreaker: '',
+      };
+    }
+  } catch (err) {
+    const msg = String(err?.message || err);
+
+    if (msg.includes('rate_limit_error') || msg.includes('429')) {
+      log(`  Rate limited while researching ${domain}; returning fallback result`);
+      return {
+        contacts: contactsToUse.map(c => ({
+          name: c.name || 'Unknown',
+          title: 'Unknown',
+          company: domain,
+          linkedin_url: '',
+          email: c.email,
+        })),
+        company: {
+          name: domain,
+          description: 'Research skipped due to rate limiting',
+          hq: 'Unknown',
+          size_estimate: 'Unknown',
+          cre_relevance: 'Unknown',
+          florida_presence: 'Unknown',
+          primary_markets: [],
+        },
+        sponsorship_intel: {
+          past_cre_sponsorships: [],
+          current_sponsorships: [],
+          advertising_evidence: [],
+          past_bisnow_sponsor: false,
+        },
+        recent_news: [],
+        match_score: 0,
+        match_reasoning: 'Skipped due to Anthropic rate limiting',
+        best_fit_events: [],
+        recommended_products: [],
+        national_opportunity: null,
+        target_audience: { primary: [], secondary: [], pitch_rationale: '' },
+        icebreaker: '',
+      };
+    }
+
+    log(`  Failed to research ${domain}: ${msg}`);
+    return {
+      contacts: contactsToUse.map(c => ({
+        name: c.name || 'Unknown',
+        title: 'Unknown',
+        company: domain,
+        linkedin_url: '',
+        email: c.email,
+      })),
+      company: {
+        name: domain,
+        description: 'Research unavailable',
+        hq: 'Unknown',
+        size_estimate: 'Unknown',
+        cre_relevance: 'Unknown',
+        florida_presence: 'Unknown',
+        primary_markets: [],
+      },
+      sponsorship_intel: {
+        past_cre_sponsorships: [],
+        current_sponsorships: [],
+        advertising_evidence: [],
+        past_bisnow_sponsor: false,
+      },
+      recent_news: [],
+      match_score: 0,
+      match_reasoning: 'Research data unavailable',
+      best_fit_events: [],
+      recommended_products: [],
+      national_opportunity: null,
+      target_audience: { primary: [], secondary: [], pitch_rationale: '' },
+      icebreaker: '',
+    };
+  }
 }
 
     log(`  Failed to research ${domain}: ${msg}`);
