@@ -6,7 +6,7 @@ import {
   NATIONAL_EVENTS_SUMMARY, BISNOW_ATTENDEE_STATS, INTERNAL_DOMAINS, TARGET_AUDIENCE_MAP,
 } from './lib/data.mjs';
 import { generateDigestEmail } from './lib/email-template.mjs';
-import { generateProposal } from './lib/proposal.mjs';
+
 
 const SCRIPT_VERSION = '2026-03-23-v7-legendary';
 
@@ -16,8 +16,6 @@ const DIGEST_EMAIL = process.env.DIGEST_EMAIL;
 const DIGEST_FROM = process.env.DIGEST_FROM || 'Bisnow Sales Digest <onboarding@resend.dev>';
 const CALENDAR_ID = process.env.CALENDAR_ID || 'jordan.hinsch@bisnow.com';
 const DRY_RUN = process.env.DRY_RUN === 'true';
-const PROPOSAL_BASE_URL = process.env.PROPOSAL_BASE_URL || '';
-
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
@@ -591,7 +589,6 @@ async function main() {
     meetings: results,
     upcomingEvents: getUpcomingEvents(8),
     nextEvent: getNextEvent(),
-    proposalBaseUrl: PROPOSAL_BASE_URL,
   });
 
   await sendEmail(html, today);

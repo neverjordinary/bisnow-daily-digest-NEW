@@ -40,26 +40,7 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function buildProposalUrl(baseUrl, research) {
-  if (!baseUrl) return '';
-  try {
-    // Encode minimal proposal data into URL hash
-    const proposalData = {
-      company: research.company,
-      recommended_products: research.recommended_products,
-      best_fit_events: research.best_fit_events,
-      target_audience: research.target_audience,
-      match_score: research.match_score,
-    };
-    const json = JSON.stringify(proposalData);
-    const encoded = Buffer.from(encodeURIComponent(json)).toString('base64');
-    return `${baseUrl}/proposal.html#${encoded}`;
-  } catch {
-    return '';
-  }
-}
-
-function renderMeetingCard(meeting, research, proposalBaseUrl) {
+function renderMeetingCard(meeting, research) {
   const score = research.match_score || 0;
   const company = research.company || {};
   const contacts = research.contacts || [];
@@ -179,16 +160,6 @@ function renderMeetingCard(meeting, research, proposalBaseUrl) {
     </div>
   ` : '';
 
-  // ─── Proposal Link ───
-  const proposalUrl = proposalBaseUrl ? buildProposalUrl(proposalBaseUrl, research) : '';
-  const proposalSection = proposalUrl && score >= 40 ? `
-    <div style="margin-top:16px;text-align:center;">
-      <a href="${proposalUrl}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#F37021,#e05a10);color:#fff;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;">
-        Generate Proposal (.pptx)
-      </a>
-    </div>
-  ` : '';
-
   return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;margin-bottom:24px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
       <!-- Header -->
@@ -300,14 +271,12 @@ function renderMeetingCard(meeting, research, proposalBaseUrl) {
         <!-- Marketing Contact -->
         ${marketingSection}
 
-        <!-- Generate Proposal -->
-        ${proposalSection}
       </div>
     </div>
   `;
 }
 
-export function generateDigestEmail({ date, meetings, upcomingEvents, nextEvent, proposalBaseUrl }) {
+export function generateDigestEmail({ date, meetings, upcomingEvents, nextEvent }) {
   const totalPipeline = meetings.reduce((sum, { research }) => {
     const products = research?.recommended_products || [];
     return sum + products.reduce((s, p) => {
@@ -322,7 +291,7 @@ export function generateDigestEmail({ date, meetings, upcomingEvents, nextEvent,
 
   const meetingCards = meetings
     .sort((a, b) => (b.research?.match_score || 0) - (a.research?.match_score || 0))
-    .map(m => renderMeetingCard(m.meeting, m.research, proposalBaseUrl))
+    .map(m => renderMeetingCard(m.meeting, m.research))
     .join('');
 
   const eventRows = (upcomingEvents || []).map(e => {

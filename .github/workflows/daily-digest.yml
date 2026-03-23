@@ -31,5 +31,4 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-          PROPOSAL_BASE_URL: ${{ secrets.PROPOSAL_BASE_URL }}
         run: node scripts/daily-digest.mjs
