@@ -328,47 +328,48 @@ Rules:
     });
 
     const text = extractText(response);
-    const result = parseJSON(text);
-    log(`  ${domain}: score ${result.match_score ?? 0}, ${result.recommended_products?.length || 0} products`);
-    return result;
-  } catch (err) {
-    const msg = String(err?.message || err);
+    log(`RAW RESPONSE FOR ${domain}: ${text}`);
+    try {
+  const result = parseJSON(text);
+  log(`  ${domain}: score ${result.match_score ?? 0}, ${result.recommended_products?.length || 0} products`);
+  return result;
+} catch (parseErr) {
+  log(`  Failed to parse JSON for ${domain}: ${parseErr.message}`);
+  log(`  Raw text for ${domain}: ${text}`);
 
-    if (msg.includes('rate_limit_error') || msg.includes('429')) {
-      log(`  Rate limited while researching ${domain}; returning fallback result`);
-      return {
-        contacts: contactsToUse.map(c => ({
-          name: c.name || 'Unknown',
-          title: 'Unknown',
-          company: domain,
-          linkedin_url: '',
-          email: c.email,
-        })),
-        company: {
-          name: domain,
-          description: 'Research skipped due to rate limiting',
-          hq: 'Unknown',
-          size_estimate: 'Unknown',
-          cre_relevance: 'Unknown',
-          florida_presence: 'Unknown',
-          primary_markets: [],
-        },
-        sponsorship_intel: {
-          past_cre_sponsorships: [],
-          current_sponsorships: [],
-          advertising_evidence: [],
-          past_bisnow_sponsor: false,
-        },
-        recent_news: [],
-        match_score: 0,
-        match_reasoning: 'Skipped due to Anthropic rate limiting',
-        best_fit_events: [],
-        recommended_products: [],
-        national_opportunity: null,
-        target_audience: { primary: [], secondary: [], pitch_rationale: '' },
-        icebreaker: '',
-      };
-    }
+  return {
+    contacts: contactsToUse.map(c => ({
+      name: c.name || 'Unknown',
+      title: 'Unknown',
+      company: domain,
+      linkedin_url: '',
+      email: c.email,
+    })),
+    company: {
+      name: domain,
+      description: text.slice(0, 500) || 'Research returned non-JSON text',
+      hq: 'Unknown',
+      size_estimate: 'Unknown',
+      cre_relevance: 'Unknown',
+      florida_presence: 'Unknown',
+      primary_markets: [],
+    },
+    sponsorship_intel: {
+      past_cre_sponsorships: [],
+      current_sponsorships: [],
+      advertising_evidence: [],
+      past_bisnow_sponsor: false,
+    },
+    recent_news: [],
+    match_score: 0,
+    match_reasoning: 'Claude returned non-JSON output',
+    best_fit_events: [],
+    recommended_products: [],
+    national_opportunity: null,
+    target_audience: { primary: [], secondary: [], pitch_rationale: '' },
+    icebreaker: '',
+  };
+}
 
     log(`  Failed to research ${domain}: ${msg}`);
     return {
