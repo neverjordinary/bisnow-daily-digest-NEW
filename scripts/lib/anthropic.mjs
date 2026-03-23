@@ -3,7 +3,7 @@
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-export async function callAnthropicAPI({ apiKey, system, userMessage, tools = [], maxTokens = 4096 }) {
+export async function callAnthropicAPI({ apiKey, system, userMessage, tools = [], maxTokens = 800 }) {
   const body = {
     model: 'claude-sonnet-4-20250514',
     max_tokens: maxTokens,
