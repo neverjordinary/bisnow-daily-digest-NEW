@@ -1,0 +1,28 @@
+name: Daily Sales Digest
+
+on:
+  schedule:
+    # Mon-Fri at 6:30 AM Eastern (11:30 UTC during EDT, 10:30 UTC during EST)
+    - cron: '30 10 * * 1-5'
+  workflow_dispatch: # Manual trigger from GitHub UI
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Daily Digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_EMAIL: ${{ secrets.DIGEST_EMAIL }}
+        run: node scripts/daily-digest.mjs
