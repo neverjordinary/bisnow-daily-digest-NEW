@@ -15,11 +15,11 @@ export async function callAnthropicAPI({ apiKey, system, userMessage, tools = []
     body.tools = tools;
   }
 
-  const headers = {
-    'Content-Type': 'application/json',
-    'x-api-key': apiKey,
-    'anthropic-version': '2025-01-01',
-  };
+  const headers: {
+  'x-api-key': process.env.ANTHROPIC_API_KEY,
+  'anthropic-version': '2023-06-01',
+  'content-type': 'application/json'
+};
 
   // Only add beta header if using web search (required for web_search tool)
   if (tools.some(t => t.type?.startsWith('web_search'))) {
