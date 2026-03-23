@@ -6,6 +6,7 @@ import {
   NATIONAL_EVENTS_SUMMARY, BISNOW_ATTENDEE_STATS, INTERNAL_DOMAINS, TARGET_AUDIENCE_MAP,
 } from './lib/data.mjs';
 import { generateDigestEmail } from './lib/email-template.mjs';
+import { generateProposal } from './lib/proposal.mjs';
 
 const SCRIPT_VERSION = '2026-03-23-v7-legendary';
 
@@ -15,6 +16,7 @@ const DIGEST_EMAIL = process.env.DIGEST_EMAIL;
 const DIGEST_FROM = process.env.DIGEST_FROM || 'Bisnow Sales Digest <onboarding@resend.dev>';
 const CALENDAR_ID = process.env.CALENDAR_ID || 'jordan.hinsch@bisnow.com';
 const DRY_RUN = process.env.DRY_RUN === 'true';
+const PROPOSAL_BASE_URL = process.env.PROPOSAL_BASE_URL || '';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -278,6 +280,7 @@ function buildFallbackResult(contactsToUse, domain, reason) {
     recommended_products: [],
     national_opportunity: null,
     target_audience: { primary: [], secondary: [], pitch_rationale: '' },
+    marketing_contact: null,
     icebreaker: '',
   };
 }
@@ -347,12 +350,13 @@ BISNOW EVENT ATTENDEE DEMOGRAPHICS:
 
 RESEARCH INSTRUCTIONS:
 1. Search for EACH contact on LinkedIn. Get their exact LinkedIn URL, current title, and a 1-2 sentence career bio (years of experience, notable achievements, previous companies, specializations).
-2. Research the company deeply: revenue, employee count, key metrics, CRE relevance, Florida operations, recent transactions/projects.
+2. Research the company: revenue, employee count, CRE relevance, Florida operations. Keep the company description to 1-2 punchy sentences with a key metric.
 3. Search for "${domain} bisnow" and "${domain} sponsor" to find any past Bisnow relationship.
-4. Search for recent company news (deals, projects, hires, market reports) from the last 12 months.
+4. Search for up to 3 recent company news items (deals, projects, hires, market reports) from the last 12 months.
 5. For each news item, map it to a SPECIFIC Bisnow event and explain why that event is the perfect platform.
 6. Build a recommended pitch of 4-6 specific products with exact prices that create a compelling package.
 7. Identify national cross-sell opportunities if the company operates in multiple US markets.
+8. IMPORTANT: Search for a marketing/communications decision-maker at this company (CMO, VP Marketing, Director of Marketing, Head of Brand, etc.). This is a KEY contact for sponsorship decisions even if they're not on the call. Search LinkedIn for "[company name] marketing director" or similar.
 
 Return JSON with this EXACT structure:
 {
@@ -368,12 +372,12 @@ Return JSON with this EXACT structure:
   ],
   "company": {
     "name": "Full Company Name",
-    "description": "Detailed company description including key metrics (revenue, AUM, transaction volume, employees, office count). Be specific.",
+    "description": "1-2 sentence company summary with key metric (revenue or AUM or deal volume). Be concise, not a paragraph.",
     "hq": "City, State",
     "size_estimate": "e.g. 500 employees / $2B revenue",
     "revenue": "$X revenue or AUM figure if available",
     "employees": "Number or estimate",
-    "cre_relevance": "HIGH/MEDIUM/LOW with specific explanation of their CRE business",
+    "cre_relevance": "HIGH/MEDIUM/LOW with brief explanation",
     "florida_presence": "Specific Florida offices, team size, recent Florida deals",
     "primary_markets": ["Miami", "Fort Lauderdale", "Palm Beach"]
   },
@@ -417,12 +421,19 @@ Return JSON with this EXACT structure:
     "secondary": ["Lenders", "Property managers"],
     "pitch_rationale": "Explain WHY these are the people this company wants to meet and HOW Bisnow events deliver them. Reference the attendee demographics."
   },
+  "marketing_contact": {
+    "name": "Full Name of a marketing/communications decision-maker at this company",
+    "title": "Their title (VP Marketing, CMO, Director of Marketing, etc.)",
+    "linkedin_url": "LinkedIn URL if found",
+    "rationale": "Why this person is the right marketing contact to loop in for sponsorship decisions"
+  },
   "icebreaker": "A specific, researched conversation opener referencing a real recent deal, project, or achievement. Not generic."
 }
 
 IMPORTANT:
-- Include 3-5 recent_news items if available (with event mappings for each)
+- Include up to 3 recent_news items (with event mappings for each)
 - Include 4-6 recommended_products to build a $30K-$50K+ pipeline
+- ALWAYS include a marketing_contact — search for one even if not on the call
 - Use EXACT prices from the product menu above
 - Each recommended product should name a SPECIFIC event from the calendar
 - Contact bios should include real career details from LinkedIn, not generic placeholders
@@ -580,6 +591,7 @@ async function main() {
     meetings: results,
     upcomingEvents: getUpcomingEvents(8),
     nextEvent: getNextEvent(),
+    proposalBaseUrl: PROPOSAL_BASE_URL,
   });
 
   await sendEmail(html, today);

@@ -40,7 +40,26 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function renderMeetingCard(meeting, research) {
+function buildProposalUrl(baseUrl, research) {
+  if (!baseUrl) return '';
+  try {
+    // Encode minimal proposal data into URL hash
+    const proposalData = {
+      company: research.company,
+      recommended_products: research.recommended_products,
+      best_fit_events: research.best_fit_events,
+      target_audience: research.target_audience,
+      match_score: research.match_score,
+    };
+    const json = JSON.stringify(proposalData);
+    const encoded = Buffer.from(encodeURIComponent(json)).toString('base64');
+    return `${baseUrl}/proposal.html#${encoded}`;
+  } catch {
+    return '';
+  }
+}
+
+function renderMeetingCard(meeting, research, proposalBaseUrl) {
   const score = research.match_score || 0;
   const company = research.company || {};
   const contacts = research.contacts || [];
@@ -143,6 +162,30 @@ function renderMeetingCard(meeting, research) {
       <div style="background:#fefce8;border-left:4px solid #eab308;padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px;line-height:1.5;">
         ${escapeHtml(research.national_opportunity)}
       </div>
+    </div>
+  ` : '';
+
+  // ─── Marketing Contact ───
+  const mktg = research.marketing_contact;
+  const marketingSection = mktg?.name ? `
+    <div style="margin-bottom:16px;">
+      <h4 style="margin:0 0 8px;font-size:14px;color:#374151;">Suggested Marketing Contact</h4>
+      <div style="padding:10px 14px;background:#fdf4ff;border-left:4px solid #a855f7;border-radius:0 8px 8px 0;">
+        <div style="font-weight:600;font-size:14px;color:#7c3aed;">${escapeHtml(mktg.name)}</div>
+        <div style="font-size:13px;color:#4b5563;">${escapeHtml(mktg.title || '')}</div>
+        ${mktg.linkedin_url ? `<div style="margin-top:3px;"><a href="${escapeHtml(mktg.linkedin_url)}" style="color:#2563eb;text-decoration:none;font-size:12px;">LinkedIn</a></div>` : ''}
+        ${mktg.rationale ? `<div style="font-size:12px;color:#6b7280;margin-top:4px;">${escapeHtml(mktg.rationale)}</div>` : ''}
+      </div>
+    </div>
+  ` : '';
+
+  // ─── Proposal Link ───
+  const proposalUrl = proposalBaseUrl ? buildProposalUrl(proposalBaseUrl, research) : '';
+  const proposalSection = proposalUrl && score >= 40 ? `
+    <div style="margin-top:16px;text-align:center;">
+      <a href="${proposalUrl}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#F37021,#e05a10);color:#fff;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;">
+        Generate Proposal (.pptx)
+      </a>
     </div>
   ` : '';
 
@@ -253,12 +296,18 @@ function renderMeetingCard(meeting, research) {
 
         <!-- National Cross-Sell -->
         ${nationalSection}
+
+        <!-- Marketing Contact -->
+        ${marketingSection}
+
+        <!-- Generate Proposal -->
+        ${proposalSection}
       </div>
     </div>
   `;
 }
 
-export function generateDigestEmail({ date, meetings, upcomingEvents, nextEvent }) {
+export function generateDigestEmail({ date, meetings, upcomingEvents, nextEvent, proposalBaseUrl }) {
   const totalPipeline = meetings.reduce((sum, { research }) => {
     const products = research?.recommended_products || [];
     return sum + products.reduce((s, p) => {
@@ -273,7 +322,7 @@ export function generateDigestEmail({ date, meetings, upcomingEvents, nextEvent 
 
   const meetingCards = meetings
     .sort((a, b) => (b.research?.match_score || 0) - (a.research?.match_score || 0))
-    .map(m => renderMeetingCard(m.meeting, m.research))
+    .map(m => renderMeetingCard(m.meeting, m.research, proposalBaseUrl))
     .join('');
 
   const eventRows = (upcomingEvents || []).map(e => {
