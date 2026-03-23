@@ -32,6 +32,19 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
 
+const EXCLUDED_DOMAINS = new Set([
+  'group.calendar.google.com',
+  'calendar.google.com',
+  'google.com',
+  'gmail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'icloud.com',
+  'me.com',
+  'aol.com',
+]);
+
 function getTodayStr() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
@@ -39,6 +52,10 @@ function getTodayStr() {
 function log(msg) {
   const ts = new Date().toISOString();
   console.error(`[${ts}] ${msg}`);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ─── Data helpers ───
@@ -149,8 +166,6 @@ async function fetchCalendarDirect() {
 
   const data = await response.json();
   const events = data.items || [];
-
-  // Filter for events with external attendees
   const externalMeetings = [];
 
   for (const event of events) {
@@ -188,12 +203,12 @@ async function fetchCalendarDirect() {
 
 async function researchMeeting(meeting, externalContacts) {
   const contactStr = externalContacts.map(c => `${c.name || 'Unknown'} <${c.email}>`).join(', ');
-  const domain = externalContacts[0]?.email?.split('@')[1] || 'unknown';
+  const domain = externalContacts[0]?.email?.split('@')[1]?.toLowerCase() || 'unknown';
   log(`Researching ${domain}...`);
 
   const system = `You are a sales intelligence researcher for Bisnow, a CRE media company. Jordan Hinsch is Head of Sales for Florida. Research contacts and companies for his meetings.
 
-Use web search to find information about each contact and their company. Search for LinkedIn profiles, company news, sponsorship history, and CRE relevance.
+Use web search to find information about each contact and their company. Keep the response concise and useful for sales prep.
 
 BISNOW FLORIDA EVENT CALENDAR (future events only):
 ${buildEventCalendarText()}
@@ -204,7 +219,7 @@ ${buildProductsText()}
 TARGET AUDIENCE MAPPING:
 ${buildTargetAudienceText()}
 
-After researching, return ONLY valid JSON (no markdown code blocks):
+Return ONLY valid JSON (no markdown code blocks):
 {
   "contacts": [{"name": "str", "title": "str", "company": "str", "linkedin_url": "str", "email": "str"}],
   "company": {"name": "str", "description": "str", "hq": "str", "size_estimate": "str", "cre_relevance": "str", "florida_presence": "str", "primary_markets": ["str"]},
@@ -224,32 +239,96 @@ Meeting: ${meeting.title}
 Time: ${meeting.start_time}
 Contacts: ${contactStr}
 
-Find: 1) LinkedIn profiles 2) Company overview & CRE relevance 3) Past/current sponsorships/advertising with URLs 4) Recent news (30 days) — MAP each news item to a specific upcoming Bisnow event if relevant 5) Match score 0-100 6) Best-fit Bisnow events (Florida first, then national) 7) 2-3 product recommendations with pricing 8) National cross-sell opportunities 9) WHO THEY WANT TO MEET — determine the prospect's target audience at a Bisnow event based on their company type 10) Specific icebreaker
+Find:
+1) LinkedIn profiles
+2) Company overview and CRE relevance
+3) Past/current sponsorships or advertising evidence with URLs
+4) Up to 3 recent news items from the last 30 days and map each to a relevant upcoming Bisnow event if applicable
+5) Match score 0-100
+6) Best-fit Bisnow events
+7) 2 product recommendations with pricing
+8) National cross-sell opportunity if any
+9) The target audience this prospect most wants to meet at a Bisnow event
+10) One specific icebreaker
 
-Return JSON only, no markdown code blocks.`;
+Be concise. Return JSON only, no markdown code blocks.`;
 
-  const response = await callAnthropicAPI({
-    apiKey: API_KEY,
-    system,
-    userMessage,
-    tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-    maxTokens: 4096,
-  });
-
-  const text = extractText(response);
   try {
+    const response = await callAnthropicAPI({
+      apiKey: API_KEY,
+      system,
+      userMessage,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      maxTokens: 1200,
+    });
+
+    const text = extractText(response);
     const result = parseJSON(text);
     log(`  ${domain}: score ${result.match_score}, ${result.recommended_products?.length || 0} products`);
     return result;
   } catch (err) {
-    log(`  Failed to parse research for ${domain}: ${err.message}`);
+    const msg = String(err?.message || err);
+
+    if (msg.includes('rate_limit_error') || msg.includes('429')) {
+      log(`  Rate limited while researching ${domain}; returning fallback result`);
+      return {
+        contacts: externalContacts.map(c => ({
+          name: c.name || 'Unknown',
+          title: 'Unknown',
+          company: domain,
+          linkedin_url: '',
+          email: c.email,
+        })),
+        company: {
+          name: domain,
+          description: 'Research skipped due to rate limiting',
+          hq: 'Unknown',
+          size_estimate: 'Unknown',
+          cre_relevance: 'Unknown',
+          florida_presence: 'Unknown',
+          primary_markets: [],
+        },
+        sponsorship_intel: {
+          past_cre_sponsorships: [],
+          current_sponsorships: [],
+          advertising_evidence: [],
+          past_bisnow_sponsor: false,
+        },
+        recent_news: [],
+        match_score: 0,
+        match_reasoning: 'Skipped due to Anthropic rate limiting',
+        best_fit_events: [],
+        recommended_products: [],
+        national_opportunity: null,
+        target_audience: { primary: [], secondary: [], pitch_rationale: '' },
+        icebreaker: '',
+      };
+    }
+
+    log(`  Failed to research ${domain}: ${msg}`);
     return {
       contacts: externalContacts.map(c => ({
-        name: c.name || 'Unknown', title: 'Unknown', company: domain,
-        linkedin_url: '', email: c.email,
+        name: c.name || 'Unknown',
+        title: 'Unknown',
+        company: domain,
+        linkedin_url: '',
+        email: c.email,
       })),
-      company: { name: domain, description: 'Research unavailable', hq: 'Unknown', size_estimate: 'Unknown', cre_relevance: 'Unknown', florida_presence: 'Unknown', primary_markets: [] },
-      sponsorship_intel: { past_cre_sponsorships: [], current_sponsorships: [], advertising_evidence: [], past_bisnow_sponsor: false },
+      company: {
+        name: domain,
+        description: 'Research unavailable',
+        hq: 'Unknown',
+        size_estimate: 'Unknown',
+        cre_relevance: 'Unknown',
+        florida_presence: 'Unknown',
+        primary_markets: [],
+      },
+      sponsorship_intel: {
+        past_cre_sponsorships: [],
+        current_sponsorships: [],
+        advertising_evidence: [],
+        past_bisnow_sponsor: false,
+      },
       recent_news: [],
       match_score: 0,
       match_reasoning: 'Research data unavailable',
@@ -277,7 +356,9 @@ async function sendEmail(html, date) {
   log(`Sending digest to ${DIGEST_EMAIL}...`);
 
   const formattedDate = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
   });
 
   const response = await fetch('https://api.resend.com/emails', {
@@ -311,7 +392,6 @@ async function main() {
 
   log(`=== Bisnow Daily Sales Digest — ${today} ===`);
 
-  // Validate env
   if (!API_KEY) {
     console.error('ERROR: ANTHROPIC_API_KEY not set');
     process.exit(1);
@@ -326,14 +406,12 @@ async function main() {
     process.exit(1);
   }
 
-  // Skip weekends
   const dayOfWeek = new Date().getDay();
   if (dayOfWeek === 0 || dayOfWeek === 6) {
     log('Weekend — skipping digest');
     process.exit(0);
   }
 
-  // Step 1: Calendar (direct Google API)
   const events = await fetchCalendarDirect();
 
   if (events.length === 0) {
@@ -348,19 +426,27 @@ async function main() {
     process.exit(0);
   }
 
-  // Step 2: Research each meeting (Anthropic + web search)
   const results = [];
   for (const meeting of events) {
     const { external } = classifyContacts(meeting.attendees);
     if (external.length === 0) continue;
 
+    const domain = external[0]?.email?.split('@')[1]?.toLowerCase();
+    if (!domain) continue;
+
+    if (EXCLUDED_DOMAINS.has(domain)) {
+      log(`Skipping excluded domain: ${domain}`);
+      continue;
+    }
+
     const research = await researchMeeting(meeting, external);
     results.push({ meeting, research });
+
+    await sleep(2500);
   }
 
   log(`Researched ${results.length} meetings`);
 
-  // Step 3: Generate email
   const html = generateDigestEmail({
     date: today,
     meetings: results,
@@ -368,7 +454,6 @@ async function main() {
     nextEvent: getNextEvent(),
   });
 
-  // Step 4: Send
   await sendEmail(html, today);
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
