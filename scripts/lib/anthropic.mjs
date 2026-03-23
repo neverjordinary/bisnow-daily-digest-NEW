@@ -3,7 +3,7 @@
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-export async function callAnthropicAPI({ apiKey, system, userMessage, tools = [], maxTokens = 800 }) {
+export async function callAnthropicAPI({ apiKey, system, userMessage, tools = [], maxTokens = 350 }) {
   const body = {
     model: 'claude-sonnet-4-20250514',
     max_tokens: maxTokens,
@@ -25,14 +25,11 @@ export async function callAnthropicAPI({ apiKey, system, userMessage, tools = []
     headers['anthropic-beta'] = 'web-search-2025-03-05';
   }
 
- console.error('DEBUG headers =', headers);
-console.error('DEBUG file =', import.meta.url);
-
-const response = await fetch(ANTHROPIC_API_URL, {
-  method: 'POST',
-  headers,
-  body: JSON.stringify(body),
-});
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
 
   if (!response.ok) {
     const errText = await response.text();
@@ -64,13 +61,12 @@ export function parseJSON(text) {
     } catch {
       try {
         const cleaned = candidate
-          .replace(/,\s*([}\]])/g, '$1') // remove trailing commas
-          .replace(/[\u201C\u201D]/g, '"') // smart double quotes
-          .replace(/[\u2018\u2019]/g, "'") // smart single quotes
+          .replace(/,\s*([}\]])/g, '$1')
+          .replace(/[\u201C\u201D]/g, '"')
+          .replace(/[\u2018\u2019]/g, "'")
           .trim();
         return JSON.parse(cleaned);
       } catch {
-        // keep trying
       }
     }
   }
