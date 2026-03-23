@@ -10,9 +10,9 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function callAnthropicAPI({ apiKey, system, userMessage, tools = [], maxTokens = 3000 }) {
+export async function callAnthropicAPI({ apiKey, system, userMessage, tools = [], maxTokens = 8000, model = 'claude-sonnet-4-20250514' }) {
   const body = {
-    model: 'claude-haiku-4-5-20251001',
+    model,
     max_tokens: maxTokens,
     system,
     messages: [{ role: 'user', content: userMessage }],

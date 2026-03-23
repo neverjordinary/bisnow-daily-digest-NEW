@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
 import { callAnthropicAPI, extractText, parseJSON } from './lib/anthropic.mjs';
-import { ALL_FLORIDA_EVENTS, EVENT_PACKAGES, DIGITAL_PRODUCTS, INTERNAL_DOMAINS, TARGET_AUDIENCE_MAP } from './lib/data.mjs';
+import {
+  ALL_FLORIDA_EVENTS, EVENT_PACKAGES, DIGITAL_PRODUCTS, NATIONAL_BRIEFS,
+  NATIONAL_EVENTS_SUMMARY, BISNOW_ATTENDEE_STATS, INTERNAL_DOMAINS, TARGET_AUDIENCE_MAP,
+} from './lib/data.mjs';
 import { generateDigestEmail } from './lib/email-template.mjs';
 
-const SCRIPT_VERSION = '2026-03-23-v6';
+const SCRIPT_VERSION = '2026-03-23-v7-legendary';
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -82,36 +85,48 @@ function getBestExternalContacts(attendees = []) {
 
 // ─── Data helpers ───
 
-function buildEventCalendarText() {
+function buildFullEventCalendar() {
   const today = getTodayStr();
   return ALL_FLORIDA_EVENTS
     .filter(e => e.date >= today)
-    .slice(0, 12)
-    .map(e => `${e.date} | ${e.name} | ${e.market}`)
+    .map(e => `${e.date} | ${e.name} | ${e.format} | ${e.venue} | ${e.market}`)
     .join('\n');
 }
 
-function buildProductsText() {
-  const eventPkgs = EVENT_PACKAGES.slice(0, 6).map(p =>
-    `${p.name}: $${p.price.toLocaleString()} — ${p.inclusions}`
+function buildFullProductsText() {
+  const eventPkgs = EVENT_PACKAGES.map(p =>
+    `${p.name}: $${p.price.toLocaleString()} — ${p.inclusions} (${p.tickets} tickets${p.exclusive ? ', exclusive' : ''})`
   ).join('\n');
 
   const digital = [
-    `South FL Morning Brief: Takeover $${DIGITAL_PRODUCTS.southFloridaBrief.takeover} | Lead Ad $${DIGITAL_PRODUCTS.southFloridaBrief.leadAd} | Sponsored Link $${DIGITAL_PRODUCTS.southFloridaBrief.sponsoredLink}`,
-    `Dedicated Email (SoFL): $${DIGITAL_PRODUCTS.dedicatedEmail.price.toLocaleString()}`,
-    `Post-Event Dedicated Email: $${DIGITAL_PRODUCTS.postEventEmail.price.toLocaleString()}`,
-    `Custom Content Article (Studio B): $${DIGITAL_PRODUCTS.customArticle.price.toLocaleString()}`,
+    `South FL Morning Brief (${DIGITAL_PRODUCTS.southFloridaBrief.audience.toLocaleString()} subscribers): Takeover $${DIGITAL_PRODUCTS.southFloridaBrief.takeover} | Lead Ad $${DIGITAL_PRODUCTS.southFloridaBrief.leadAd} | Sponsored Link $${DIGITAL_PRODUCTS.southFloridaBrief.sponsoredLink}`,
+    `Dedicated Email — South Florida (${DIGITAL_PRODUCTS.dedicatedEmail.audience.toLocaleString()} audience): $${DIGITAL_PRODUCTS.dedicatedEmail.price.toLocaleString()} — ${DIGITAL_PRODUCTS.dedicatedEmail.description}`,
+    `Post-Event Dedicated Email: $${DIGITAL_PRODUCTS.postEventEmail.price.toLocaleString()} — ${DIGITAL_PRODUCTS.postEventEmail.description}`,
+    `Custom Content Article (Studio B): $${DIGITAL_PRODUCTS.customArticle.price.toLocaleString()} — ${DIGITAL_PRODUCTS.customArticle.description}`,
+    `Website Banner Ads: Run-of-Site $${DIGITAL_PRODUCTS.websiteBannerROS.cpm} CPM | Targeted $${DIGITAL_PRODUCTS.websiteBannerTargeted.cpm} CPM`,
   ].join('\n');
 
-  return `EVENT SPONSORSHIP PACKAGES:\n${eventPkgs}\n\nDIGITAL PRODUCTS:\n${digital}`;
+  const nationalBriefs = NATIONAL_BRIEFS.map(b => {
+    const pricing = b.weeklyRate
+      ? `$${b.weeklyRate.toLocaleString()}/week`
+      : `Takeover $${b.takeover.toLocaleString()} | Sponsored Link $${b.sponsoredLink.toLocaleString()}`;
+    return `${b.name} (${b.audience.toLocaleString()} subs): ${pricing}`;
+  }).join('\n');
+
+  return `EVENT SPONSORSHIP PACKAGES (at any Florida event):\n${eventPkgs}\n\nDIGITAL PRODUCTS:\n${digital}\n\nNATIONAL NEWSLETTER BRIEFS:\n${nationalBriefs}`;
 }
 
 function buildTargetAudienceText() {
   return Object.entries(TARGET_AUDIENCE_MAP)
-    .slice(0, 12)
     .map(([type, { primary, secondary }]) =>
       `${type}: Primary → ${primary.join(', ')} | Secondary → ${secondary.join(', ')}`)
     .join('\n');
+}
+
+function buildNationalEventsText() {
+  return NATIONAL_EVENTS_SUMMARY.map(m =>
+    `${m.market}: ${m.keyEvents}`
+  ).join('\n');
 }
 
 function classifyContacts(attendees) {
@@ -130,7 +145,7 @@ function classifyContacts(attendees) {
   return { internal, external };
 }
 
-function getUpcomingEvents(count = 5) {
+function getUpcomingEvents(count = 8) {
   const today = getTodayStr();
   return ALL_FLORIDA_EVENTS.filter(e => e.date >= today).slice(0, count);
 }
@@ -229,6 +244,44 @@ async function fetchCalendarDirect() {
 
 // ─── Research ───
 
+function buildFallbackResult(contactsToUse, domain, reason) {
+  return {
+    contacts: contactsToUse.map(c => ({
+      name: c.name || 'Unknown',
+      title: 'Unknown',
+      company: domain || 'Unknown',
+      linkedin_url: '',
+      email: c.email,
+      bio: '',
+    })),
+    company: {
+      name: domain || 'Unknown',
+      description: reason,
+      hq: 'Unknown',
+      size_estimate: 'Unknown',
+      revenue: '',
+      employees: '',
+      cre_relevance: 'Unknown',
+      florida_presence: 'Unknown',
+      primary_markets: [],
+    },
+    sponsorship_intel: {
+      past_cre_sponsorships: [],
+      current_sponsorships: [],
+      advertising_evidence: [],
+      past_bisnow_sponsor: false,
+    },
+    recent_news: [],
+    match_score: 0,
+    match_reasoning: reason,
+    best_fit_events: [],
+    recommended_products: [],
+    national_opportunity: null,
+    target_audience: { primary: [], secondary: [], pitch_rationale: '' },
+    icebreaker: '',
+  };
+}
+
 async function researchMeeting(meeting, externalContacts) {
   const filteredContacts = getBestExternalContacts(externalContacts);
   const contactsToUse = filteredContacts.length > 0 ? filteredContacts : externalContacts;
@@ -236,38 +289,7 @@ async function researchMeeting(meeting, externalContacts) {
   const domain = normalizeDomain(contactsToUse[0]?.email || '');
   if (!domain || isExcludedDomain(domain)) {
     log(`Skipping excluded domain inside researchMeeting: ${domain || 'unknown'}`);
-    return {
-      contacts: contactsToUse.map(c => ({
-        name: c.name || 'Unknown',
-        title: 'Unknown',
-        company: domain || 'Unknown',
-        linkedin_url: '',
-        email: c.email,
-      })),
-      company: {
-        name: domain || 'Unknown',
-        description: 'Skipped excluded/non-company domain',
-        hq: 'Unknown',
-        size_estimate: 'Unknown',
-        cre_relevance: 'Unknown',
-        florida_presence: 'Unknown',
-        primary_markets: [],
-      },
-      sponsorship_intel: {
-        past_cre_sponsorships: [],
-        current_sponsorships: [],
-        advertising_evidence: [],
-        past_bisnow_sponsor: false,
-      },
-      recent_news: [],
-      match_score: 0,
-      match_reasoning: 'Skipped excluded or non-company domain',
-      best_fit_events: [],
-      recommended_products: [],
-      national_opportunity: null,
-      target_audience: { primary: [], secondary: [], pitch_rationale: '' },
-      icebreaker: '',
-    };
+    return buildFallbackResult(contactsToUse, domain, 'Skipped excluded/non-company domain');
   }
 
   const contactStr = contactsToUse
@@ -276,57 +298,136 @@ async function researchMeeting(meeting, externalContacts) {
 
   log(`Researching ${domain}...`);
 
-  const upcomingEvents = getUpcomingEvents(5)
-    .map(e => `${e.name} | ${e.date} | ${e.market}`)
-    .join('\n');
+  const fullEventCalendar = buildFullEventCalendar();
+  const fullProducts = buildFullProductsText();
+  const targetAudiences = buildTargetAudienceText();
+  const nationalEvents = buildNationalEventsText();
 
-  const compactProducts = [
-    'Event sponsorships: speaking, branding, tickets',
-    'South Florida Morning Brief ads',
-    'Dedicated emails',
-    'Custom content / Studio B',
-  ].join('\n');
+  const system = `You are an elite sales intelligence researcher for Bisnow, the largest commercial real estate (CRE) media and events company in the US. Your job is to prepare comprehensive, deal-ready intelligence for Jordan Hinsch, Head of Sales for Florida.
 
-  const system = `You are a sales researcher for Bisnow Florida.
-Research the company and meeting contacts using web search.
-Keep the result concise, practical, and sales-focused.
-Return valid JSON only.`;
+Your research must be DEEP, SPECIFIC, and ACTIONABLE. Do not give generic summaries. Find real data points: revenue figures, deal sizes, transaction volumes, specific project names, specific people's career histories. Use web search extensively — search for each contact individually on LinkedIn, search for recent company news, search for their past sponsorships and advertising.
 
-  const userMessage = `Meeting: ${meeting.title}
+CRITICAL RULES:
+- Search for EACH contact's LinkedIn profile individually by name + company. Verify the URL leads to the right person.
+- Find specific, recent news (last 12 months) — real deals, transactions, hires, project announcements.
+- Map each news item to a specific Bisnow event where that news creates a sales opportunity.
+- Check if this company or its parent has EVER sponsored, advertised with, or been featured on Bisnow.
+- Recommend specific products with EXACT prices from the price list provided.
+- Think like a sales strategist: what would make this company want to spend $20K-$50K+ with Bisnow?
+
+Return valid JSON only. No markdown wrapping.`;
+
+  const userMessage = `MEETING INTELLIGENCE REQUEST
+============================
+Meeting: ${meeting.title}
 Time: ${meeting.start_time}
+Location: ${meeting.location || 'Not specified'}
 Domain: ${domain}
 Contacts: ${contactStr}
+Meeting Notes: ${meeting.description ? meeting.description.slice(0, 500) : 'None'}
 
-Upcoming Bisnow Florida events:
-${upcomingEvents}
+FULL BISNOW FLORIDA EVENT CALENDAR (upcoming):
+${fullEventCalendar}
 
-Bisnow products:
-${compactProducts}
+BISNOW NATIONAL EVENTS (key markets for cross-sell):
+${nationalEvents}
 
-Return JSON with this exact structure:
+COMPLETE BISNOW PRODUCT & PRICING MENU:
+${fullProducts}
+
+TARGET AUDIENCE MAPPING (who attends Bisnow events by company type):
+${targetAudiences}
+
+BISNOW EVENT ATTENDEE DEMOGRAPHICS:
+- ${BISNOW_ATTENDEE_STATS.vpPlus} are VP-level or above
+- ${BISNOW_ATTENDEE_STATS.cSuite} are C-suite
+- ${BISNOW_ATTENDEE_STATS.ownersOperatorsDevPELenders} are Owners/Operators/Developers/PE/Lenders
+- Average attendance: ${BISNOW_ATTENDEE_STATS.avgAttendees} per event
+- ${BISNOW_ATTENDEE_STATS.totalSubscribers} total subscribers, ${BISNOW_ATTENDEE_STATS.totalReaders} annual readers
+
+RESEARCH INSTRUCTIONS:
+1. Search for EACH contact on LinkedIn. Get their exact LinkedIn URL, current title, and a 1-2 sentence career bio (years of experience, notable achievements, previous companies, specializations).
+2. Research the company deeply: revenue, employee count, key metrics, CRE relevance, Florida operations, recent transactions/projects.
+3. Search for "${domain} bisnow" and "${domain} sponsor" to find any past Bisnow relationship.
+4. Search for recent company news (deals, projects, hires, market reports) from the last 12 months.
+5. For each news item, map it to a SPECIFIC Bisnow event and explain why that event is the perfect platform.
+6. Build a recommended pitch of 4-6 specific products with exact prices that create a compelling package.
+7. Identify national cross-sell opportunities if the company operates in multiple US markets.
+
+Return JSON with this EXACT structure:
 {
-  "contacts": [{"name":"str","title":"str","company":"str","linkedin_url":"str","email":"str"}],
-  "company": {"name":"str","description":"str","hq":"str","size_estimate":"str","cre_relevance":"str","florida_presence":"str","primary_markets":["str"]},
-  "sponsorship_intel": {"past_cre_sponsorships":[],"current_sponsorships":[],"advertising_evidence":[],"past_bisnow_sponsor":false},
-  "recent_news": [{"headline":"str","summary":"str","url":"str","date":"str"}],
-  "match_score": 0,
-  "match_reasoning": "str",
-  "best_fit_events": [{"event_name":"str","date":"str","market":"str","why":"str"}],
-  "recommended_products": [{"product":"str","price":"str","rationale":"str"}],
-  "national_opportunity": "str or null",
-  "target_audience": {"primary":["str"],"secondary":["str"],"pitch_rationale":"str"},
-  "icebreaker": "str"
+  "contacts": [
+    {
+      "name": "Full Name",
+      "title": "Current Title at Company",
+      "company": "Company Name",
+      "linkedin_url": "https://linkedin.com/in/exact-profile-slug",
+      "email": "their@email.com",
+      "bio": "15+ year CRE veteran. Previously VP at JLL. Specializes in office leasing. Led $500M in transactions in 2024."
+    }
+  ],
+  "company": {
+    "name": "Full Company Name",
+    "description": "Detailed company description including key metrics (revenue, AUM, transaction volume, employees, office count). Be specific.",
+    "hq": "City, State",
+    "size_estimate": "e.g. 500 employees / $2B revenue",
+    "revenue": "$X revenue or AUM figure if available",
+    "employees": "Number or estimate",
+    "cre_relevance": "HIGH/MEDIUM/LOW with specific explanation of their CRE business",
+    "florida_presence": "Specific Florida offices, team size, recent Florida deals",
+    "primary_markets": ["Miami", "Fort Lauderdale", "Palm Beach"]
+  },
+  "sponsorship_intel": {
+    "past_cre_sponsorships": ["List any CRE event sponsorships found (ICSC, ULI, NAIOP, CREFC, Bisnow, etc.)"],
+    "current_sponsorships": ["Any current/active sponsorships"],
+    "advertising_evidence": ["Any advertising, sponsored content, or marketing activities found"],
+    "past_bisnow_sponsor": true
+  },
+  "recent_news": [
+    {
+      "headline": "Specific headline about a real deal/project/hire",
+      "summary": "2-3 sentence summary with specific numbers",
+      "url": "https://source-url.com/article",
+      "date": "2026-01-15",
+      "mapped_bisnow_event": "South Florida Office Summit (Jun 11)",
+      "event_rationale": "This deal directly relates to the office market discussion at this event. Speaking opportunity to showcase their expertise."
+    }
+  ],
+  "match_score": 85,
+  "match_reasoning": "2-3 sentences explaining WHY this score, referencing specific data points",
+  "best_fit_events": [
+    {
+      "event_name": "Exact Event Name from calendar",
+      "date": "2026-06-11",
+      "venue": "Venue name",
+      "market": "South Florida",
+      "why": "Specific explanation connecting company's business to this event's audience and topic"
+    }
+  ],
+  "recommended_products": [
+    {
+      "product": "Panelist Package @ South Florida Office Summit (Jun 11)",
+      "price": "$7,350",
+      "rationale": "Speaking slot positions them as office market experts. Their recent Gateway leasing assignment makes them the perfect panelist."
+    }
+  ],
+  "national_opportunity": "If applicable: 'Company has offices in NYC, Chicago, Boston. Cross-sell to Bisnow teams in those markets. Specific events: NYC State of the Market (Nov), Chicago SOTM (Oct).' or null if purely local.",
+  "target_audience": {
+    "primary": ["Investors", "Developers", "Owners"],
+    "secondary": ["Lenders", "Property managers"],
+    "pitch_rationale": "Explain WHY these are the people this company wants to meet and HOW Bisnow events deliver them. Reference the attendee demographics."
+  },
+  "icebreaker": "A specific, researched conversation opener referencing a real recent deal, project, or achievement. Not generic."
 }
 
-Rules:
-- keep recent_news to max 2
-- keep best_fit_events to max 2
-- keep recommended_products to max 2
-- do not include markdown
-- do not include trailing commas
-- if unsure, use empty arrays or empty strings
-- keep all fields short
-- return JSON only`;
+IMPORTANT:
+- Include 3-5 recent_news items if available (with event mappings for each)
+- Include 4-6 recommended_products to build a $30K-$50K+ pipeline
+- Use EXACT prices from the product menu above
+- Each recommended product should name a SPECIFIC event from the calendar
+- Contact bios should include real career details from LinkedIn, not generic placeholders
+- LinkedIn URLs must be real profile URLs you found via search, not guesses
+- If you cannot find a LinkedIn profile, set linkedin_url to empty string ""`;
 
   try {
     const response = await callAnthropicAPI({
@@ -334,124 +435,30 @@ Rules:
       system,
       userMessage,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      maxTokens: 3000,
+      maxTokens: 8000,
     });
 
     const text = extractText(response);
 
     try {
       const result = parseJSON(text);
-      log(`  ${domain}: score ${result.match_score ?? 0}, ${result.recommended_products?.length || 0} products`);
+      log(`  ${domain}: score ${result.match_score ?? 0}, ${result.recommended_products?.length || 0} products, ${result.recent_news?.length || 0} news`);
       return result;
     } catch (parseErr) {
       log(`  Failed to parse JSON for ${domain}: ${parseErr.message}`);
-      log(`  Raw text for ${domain}: ${text}`);
-
-      return {
-        contacts: contactsToUse.map(c => ({
-          name: c.name || 'Unknown',
-          title: 'Unknown',
-          company: domain,
-          linkedin_url: '',
-          email: c.email,
-        })),
-        company: {
-          name: domain,
-          description: text.slice(0, 500) || 'Research returned non-JSON text',
-          hq: 'Unknown',
-          size_estimate: 'Unknown',
-          cre_relevance: 'Unknown',
-          florida_presence: 'Unknown',
-          primary_markets: [],
-        },
-        sponsorship_intel: {
-          past_cre_sponsorships: [],
-          current_sponsorships: [],
-          advertising_evidence: [],
-          past_bisnow_sponsor: false,
-        },
-        recent_news: [],
-        match_score: 0,
-        match_reasoning: 'Claude returned non-JSON output',
-        best_fit_events: [],
-        recommended_products: [],
-        national_opportunity: null,
-        target_audience: { primary: [], secondary: [], pitch_rationale: '' },
-        icebreaker: '',
-      };
+      log(`  Raw text for ${domain}: ${text.slice(0, 500)}`);
+      return buildFallbackResult(contactsToUse, domain, 'Claude returned non-JSON output');
     }
   } catch (err) {
     const msg = String(err?.message || err);
 
     if (msg.includes('rate_limit_error') || msg.includes('429')) {
       log(`  Rate limited while researching ${domain}; returning fallback result`);
-      return {
-        contacts: contactsToUse.map(c => ({
-          name: c.name || 'Unknown',
-          title: 'Unknown',
-          company: domain,
-          linkedin_url: '',
-          email: c.email,
-        })),
-        company: {
-          name: domain,
-          description: 'Research skipped due to rate limiting',
-          hq: 'Unknown',
-          size_estimate: 'Unknown',
-          cre_relevance: 'Unknown',
-          florida_presence: 'Unknown',
-          primary_markets: [],
-        },
-        sponsorship_intel: {
-          past_cre_sponsorships: [],
-          current_sponsorships: [],
-          advertising_evidence: [],
-          past_bisnow_sponsor: false,
-        },
-        recent_news: [],
-        match_score: 0,
-        match_reasoning: 'Skipped due to Anthropic rate limiting',
-        best_fit_events: [],
-        recommended_products: [],
-        national_opportunity: null,
-        target_audience: { primary: [], secondary: [], pitch_rationale: '' },
-        icebreaker: '',
-      };
+      return buildFallbackResult(contactsToUse, domain, 'Skipped due to Anthropic rate limiting');
     }
 
     log(`  Failed to research ${domain}: ${msg}`);
-    return {
-      contacts: contactsToUse.map(c => ({
-        name: c.name || 'Unknown',
-        title: 'Unknown',
-        company: domain,
-        linkedin_url: '',
-        email: c.email,
-      })),
-      company: {
-        name: domain,
-        description: 'Research unavailable',
-        hq: 'Unknown',
-        size_estimate: 'Unknown',
-        cre_relevance: 'Unknown',
-        florida_presence: 'Unknown',
-        primary_markets: [],
-      },
-      sponsorship_intel: {
-        past_cre_sponsorships: [],
-        current_sponsorships: [],
-        advertising_evidence: [],
-        past_bisnow_sponsor: false,
-      },
-      recent_news: [],
-      match_score: 0,
-      match_reasoning: 'Research data unavailable',
-      best_fit_events: [],
-      recommended_products: [],
-      national_opportunity: null,
-      target_audience: { primary: [], secondary: [], pitch_rationale: '' },
-      icebreaker: '',
-    };
+    return buildFallbackResult(contactsToUse, domain, 'Research data unavailable');
   }
 }
 
@@ -533,7 +540,7 @@ async function main() {
     const html = generateDigestEmail({
       date: today,
       meetings: [],
-      upcomingEvents: getUpcomingEvents(5),
+      upcomingEvents: getUpcomingEvents(8),
       nextEvent: getNextEvent(),
     });
     await sendEmail(html, today);
@@ -560,7 +567,10 @@ async function main() {
     const research = await researchMeeting(meeting, contactsToUse);
     results.push({ meeting, research });
 
-    await sleep(90000);
+    // 60s delay between research calls to respect rate limits
+    if (events.indexOf(meeting) < events.length - 1) {
+      await sleep(60000);
+    }
   }
 
   log(`Researched ${results.length} meetings`);
@@ -568,7 +578,7 @@ async function main() {
   const html = generateDigestEmail({
     date: today,
     meetings: results,
-    upcomingEvents: getUpcomingEvents(5),
+    upcomingEvents: getUpcomingEvents(8),
     nextEvent: getNextEvent(),
   });
 
