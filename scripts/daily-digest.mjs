@@ -262,52 +262,60 @@ async function researchMeeting(meeting, externalContacts) {
     };
   }
 
-  const contactStr = contactsToUse.map(c => `${c.name || 'Unknown'} <${c.email}>`).join(', ');
+  const contactStr = contactsToUse
+    .map(c => `${c.name || 'Unknown'} <${c.email}>`)
+    .join(', ');
+
   log(`Researching ${domain}...`);
 
-  const system = `You are a sales intelligence researcher for Bisnow Florida.
+  const upcomingEvents = getUpcomingEvents(5)
+    .map(e => `${e.name} | ${e.date} | ${e.market}`)
+    .join('\n');
 
-Research the contacts and company for a sales meeting. Keep output concise and practical.
+  const compactProducts = [
+    'Event sponsorships: speaking, branding, tickets',
+    'South Florida Morning Brief ads',
+    'Dedicated emails',
+    'Custom content / Studio B',
+  ].join('\n');
 
-UPCOMING BISNOW EVENTS:
-${buildEventCalendarText()}
+  const system = `You are a sales researcher for Bisnow Florida.
+Research the company and meeting contacts using web search.
+Keep the result concise, practical, and sales-focused.
+Return valid JSON only.`;
 
-BISNOW PRODUCTS:
-${buildProductsText()}
-
-TARGET AUDIENCE MAP:
-${buildTargetAudienceText()}
-
-Return ONLY valid JSON:
-{
-  "contacts": [{"name": "str", "title": "str", "company": "str", "linkedin_url": "str", "email": "str"}],
-  "company": {"name": "str", "description": "str", "hq": "str", "size_estimate": "str", "cre_relevance": "str", "florida_presence": "str", "primary_markets": ["str"]},
-  "sponsorship_intel": {"past_cre_sponsorships": [], "current_sponsorships": [], "advertising_evidence": [], "past_bisnow_sponsor": false},
-  "recent_news": [{"headline": "str", "summary": "str", "url": "str", "date": "str"}],
-  "match_score": 0,
-  "match_reasoning": "str",
-  "best_fit_events": [{"event_name": "str", "date": "str", "market": "str", "why": "str"}],
-  "recommended_products": [{"product": "str", "price": "str", "rationale": "str"}],
-  "national_opportunity": "str or null",
-  "target_audience": {"primary": ["str"], "secondary": ["str"], "pitch_rationale": "str"},
-  "icebreaker": "str"
-}`;
   const userMessage = `Meeting: ${meeting.title}
 Time: ${meeting.start_time}
+Domain: ${domain}
 Contacts: ${contactStr}
 
-Find:
-1) contact names/titles/company and LinkedIn if available
-2) short company overview and CRE relevance
-3) any sponsorship/advertising evidence
-4) up to 2 recent news items
-5) match score 0-100
-6) up to 2 best-fit Bisnow events
-7) up to 2 recommended products with pricing
-8) one target audience recommendation
-9) one specific icebreaker
+Upcoming Bisnow Florida events:
+${upcomingEvents}
 
-Return JSON only. Keep it brief.`;
+Bisnow products:
+${compactProducts}
+
+Return JSON with this exact structure:
+{
+  "contacts": [{"name":"str","title":"str","company":"str","linkedin_url":"str","email":"str"}],
+  "company": {"name":"str","description":"str","hq":"str","size_estimate":"str","cre_relevance":"str","florida_presence":"str","primary_markets":["str"]},
+  "sponsorship_intel": {"past_cre_sponsorships":[],"current_sponsorships":[],"advertising_evidence":[],"past_bisnow_sponsor":false},
+  "recent_news": [{"headline":"str","summary":"str","url":"str","date":"str"}],
+  "match_score": 0,
+  "match_reasoning": "str",
+  "best_fit_events": [{"event_name":"str","date":"str","market":"str","why":"str"}],
+  "recommended_products": [{"product":"str","price":"str","rationale":"str"}],
+  "national_opportunity": "str or null",
+  "target_audience": {"primary":["str"],"secondary":["str"],"pitch_rationale":"str"},
+  "icebreaker": "str"
+}
+
+Rules:
+- keep recent_news to max 2
+- keep best_fit_events to max 2
+- keep recommended_products to max 2
+- be brief
+- return JSON only`;
 
   try {
     const response = await callAnthropicAPI({
@@ -315,7 +323,7 @@ Return JSON only. Keep it brief.`;
       system,
       userMessage,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      maxTokens: 700,
+      maxTokens: 500,
     });
 
     const text = extractText(response);
