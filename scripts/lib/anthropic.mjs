@@ -24,7 +24,7 @@ export async function callAnthropicAPI({ apiKey, system, userMessage, tools = []
 
   const headers = {
     'x-api-key': apiKey,
-    'anthropic-version': '2025-01-01',
+    'anthropic-version': '2023-06-01',
     'content-type': 'application/json',
   };
 

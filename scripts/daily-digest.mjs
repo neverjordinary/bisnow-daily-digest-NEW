@@ -4,7 +4,7 @@ import { callAnthropicAPI, extractText, parseJSON } from './lib/anthropic.mjs';
 import { ALL_FLORIDA_EVENTS, EVENT_PACKAGES, DIGITAL_PRODUCTS, INTERNAL_DOMAINS, TARGET_AUDIENCE_MAP } from './lib/data.mjs';
 import { generateDigestEmail } from './lib/email-template.mjs';
 
-const SCRIPT_VERSION = '2026-03-23-v5';
+const SCRIPT_VERSION = '2026-03-23-v6';
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
