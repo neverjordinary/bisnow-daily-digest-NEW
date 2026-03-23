@@ -9,7 +9,6 @@ import {
   setApiKey,
   hasApiKey,
 } from './utils/api';
-import { generateProposal } from './utils/proposal';
 
 // ─── Helpers ───────────────────────────────────────────
 
@@ -91,9 +90,8 @@ function ApiKeySetup({ onSave }) {
 
 // ─── Meeting Card ──────────────────────────────────────
 
-function MeetingCard({ meeting, research, onGenerateProposal }) {
+function MeetingCard({ meeting, research }) {
   const [expanded, setExpanded] = useState(false);
-  const [proposalLoading, setProposalLoading] = useState(false);
   const [copyToast, setCopyToast] = useState(false);
 
   const score = research?.match_score || 0;
@@ -108,17 +106,6 @@ function MeetingCard({ meeting, research, onGenerateProposal }) {
   const nationalOpp = research?.national_opportunity;
 
   const totalPipeline = recs.reduce((sum, r) => sum + parsePriceNum(r.price), 0);
-
-  const handleProposal = async () => {
-    setProposalLoading(true);
-    try {
-      await generateProposal(research, meeting.title);
-    } catch (err) {
-      console.error('Proposal generation failed:', err);
-      alert('Failed to generate proposal: ' + err.message);
-    }
-    setProposalLoading(false);
-  };
 
   const buildPitchNotes = () => {
     let text = `MEETING: ${meeting.title}\nTIME: ${formatTime(meeting.start_time)}\n`;
@@ -315,15 +302,6 @@ function MeetingCard({ meeting, research, onGenerateProposal }) {
             <button className="btn btn-sm" onClick={handleCopyNotes}>
               &#128203; Copy Pitch Notes
             </button>
-            {score >= 40 && (
-              <button
-                className="btn-proposal"
-                onClick={handleProposal}
-                disabled={proposalLoading}
-              >
-                {proposalLoading ? 'Building proposal...' : '📄 Generate Proposal'}
-              </button>
-            )}
           </div>
         </div>
       )}
