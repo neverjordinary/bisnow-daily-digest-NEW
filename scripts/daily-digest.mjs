@@ -4,13 +4,17 @@
 // Runs Mon-Fri via GitHub Actions cron or manually via: node scripts/daily-digest.mjs
 //
 // Required environment variables:
-//   ANTHROPIC_API_KEY  — Anthropic API key
-//   RESEND_API_KEY     — Resend API key (https://resend.com)
-//   DIGEST_EMAIL       — Recipient email address
-//   DIGEST_FROM        — (optional) Sender email, default: digest@bisnow.com
+//   ANTHROPIC_API_KEY      — Anthropic API key
+//   RESEND_API_KEY         — Resend API key (https://resend.com)
+//   DIGEST_EMAIL           — Recipient email address
+//   GOOGLE_CLIENT_ID       — Google OAuth client ID
+//   GOOGLE_CLIENT_SECRET   — Google OAuth client secret
+//   GOOGLE_REFRESH_TOKEN   — Google OAuth refresh token (generated once via setup script)
 //
 // Optional:
-//   DRY_RUN=true       — Skip sending email, print HTML to stdout
+//   DIGEST_FROM            — Sender email, default: onboarding@resend.dev
+//   CALENDAR_ID            — Calendar to fetch, default: jordan.hinsch@bisnow.com
+//   DRY_RUN=true           — Skip sending email, print HTML to stdout
 
 import { callAnthropicAPI, extractText, parseJSON } from './lib/anthropic.mjs';
 import { ALL_FLORIDA_EVENTS, EVENT_PACKAGES, DIGITAL_PRODUCTS, INTERNAL_DOMAINS, TARGET_AUDIENCE_MAP } from './lib/data.mjs';
@@ -19,11 +23,16 @@ import { generateDigestEmail } from './lib/email-template.mjs';
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const DIGEST_EMAIL = process.env.DIGEST_EMAIL;
-const DIGEST_FROM = process.env.DIGEST_FROM || 'Bisnow Sales Digest <digest@bisnow.com>';
+const DIGEST_FROM = process.env.DIGEST_FROM || 'Bisnow Sales Digest <onboarding@resend.dev>';
+const CALENDAR_ID = process.env.CALENDAR_ID || 'jordan.hinsch@bisnow.com';
 const DRY_RUN = process.env.DRY_RUN === 'true';
 
+// Google OAuth
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
+
 function getTodayStr() {
-  // Use Eastern Time
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
 
@@ -32,7 +41,7 @@ function log(msg) {
   console.error(`[${ts}] ${msg}`);
 }
 
-// ─── Data helpers (same logic as src/utils/api.js) ───
+// ─── Data helpers ───
 
 function buildEventCalendarText() {
   const today = getTodayStr();
@@ -87,37 +96,95 @@ function getNextEvent() {
   return ALL_FLORIDA_EVENTS.find(e => e.date >= today) || null;
 }
 
-// ─── Step 1: Fetch Calendar ───
+// ─── Google Calendar (direct API, no MCP) ───
 
-async function fetchCalendar() {
-  log('Fetching Google Calendar events...');
-  const today = getTodayStr();
-
-  const system = `Fetch today's events for jordan.hinsch@bisnow.com and return ONLY valid JSON array. Include ALL events that have at least one attendee whose email does NOT end in @bisnow.com, @biscred.com, @selectleaders.com, or @openseasadvisory.com. Internal attendees from those four domains should still be listed — include the FULL attendee list for each event. Structure: [{"title":"...","start_time":"...","end_time":"...","location":"...","description":"...","attendees":[{"email":"...","name":"..."}]}]. JSON only, no markdown.`;
-
-  const userMessage = `Get all events for jordan.hinsch@bisnow.com on ${today}. Return events that have at least one non-Bisnow/BisCred/SelectLeaders/OpenSeasAdvisory attendee. Include the full attendee list for each event. JSON only, no markdown.`;
-
-  const response = await callAnthropicAPI({
-    apiKey: API_KEY,
-    system,
-    userMessage,
-    mcpServers: [{ type: 'url', url: 'https://gcal.mcp.claude.com/mcp', name: 'google-calendar' }],
-    maxTokens: 2000,
+async function getGoogleAccessToken() {
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: GOOGLE_REFRESH_TOKEN,
+      grant_type: 'refresh_token',
+    }),
   });
 
-  const text = extractText(response);
-  try {
-    const events = parseJSON(text);
-    log(`Found ${events.length} external meetings`);
-    return Array.isArray(events) ? events : [];
-  } catch (err) {
-    log(`Failed to parse calendar: ${err.message}`);
-    log(`Raw response: ${text.slice(0, 500)}`);
-    return [];
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Google OAuth token refresh failed (${response.status}): ${err}`);
   }
+
+  const data = await response.json();
+  return data.access_token;
 }
 
-// ─── Step 2: Research Each Meeting ───
+async function fetchCalendarDirect() {
+  log('Fetching Google Calendar events (direct API)...');
+  const today = getTodayStr();
+  const timeMin = `${today}T00:00:00-05:00`;
+  const timeMax = `${today}T23:59:59-05:00`;
+
+  const accessToken = await getGoogleAccessToken();
+
+  const params = new URLSearchParams({
+    timeMin,
+    timeMax,
+    singleEvents: 'true',
+    orderBy: 'startTime',
+    maxResults: '50',
+    timeZone: 'America/New_York',
+  });
+
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?${params}`;
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Google Calendar API error (${response.status}): ${err}`);
+  }
+
+  const data = await response.json();
+  const events = data.items || [];
+
+  // Filter for events with external attendees
+  const externalMeetings = [];
+
+  for (const event of events) {
+    if (!event.attendees || event.attendees.length === 0) continue;
+    if (event.status === 'cancelled') continue;
+
+    const attendees = event.attendees.map(a => ({
+      email: a.email,
+      name: a.displayName || a.email.split('@')[0],
+      responseStatus: a.responseStatus,
+    }));
+
+    const hasExternal = attendees.some(a => {
+      const domain = a.email.split('@')[1]?.toLowerCase();
+      return domain && !INTERNAL_DOMAINS.includes(domain);
+    });
+
+    if (hasExternal) {
+      externalMeetings.push({
+        title: event.summary || 'Untitled',
+        start_time: event.start?.dateTime || event.start?.date || '',
+        end_time: event.end?.dateTime || event.end?.date || '',
+        location: event.location || '',
+        description: event.description || '',
+        attendees,
+      });
+    }
+  }
+
+  log(`Found ${externalMeetings.length} meetings with external attendees`);
+  return externalMeetings;
+}
+
+// ─── Research (Anthropic + web search, no MCP) ───
 
 async function researchMeeting(meeting, externalContacts) {
   const contactStr = externalContacts.map(c => `${c.name || 'Unknown'} <${c.email}>`).join(', ');
@@ -125,6 +192,8 @@ async function researchMeeting(meeting, externalContacts) {
   log(`Researching ${domain}...`);
 
   const system = `You are a sales intelligence researcher for Bisnow, a CRE media company. Jordan Hinsch is Head of Sales for Florida. Research contacts and companies for his meetings.
+
+Use web search to find information about each contact and their company. Search for LinkedIn profiles, company news, sponsorship history, and CRE relevance.
 
 BISNOW FLORIDA EVENT CALENDAR (future events only):
 ${buildEventCalendarText()}
@@ -135,7 +204,7 @@ ${buildProductsText()}
 TARGET AUDIENCE MAPPING:
 ${buildTargetAudienceText()}
 
-Return ONLY valid JSON (no markdown code blocks):
+After researching, return ONLY valid JSON (no markdown code blocks):
 {
   "contacts": [{"name": "str", "title": "str", "company": "str", "linkedin_url": "str", "email": "str"}],
   "company": {"name": "str", "description": "str", "hq": "str", "size_estimate": "str", "cre_relevance": "str", "florida_presence": "str", "primary_markets": ["str"]},
@@ -164,7 +233,6 @@ Return JSON only, no markdown code blocks.`;
     system,
     userMessage,
     tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-    mcpServers: [{ type: 'url', url: 'https://mcp.zoominfo.com/mcp', name: 'zoominfo' }],
     maxTokens: 4096,
   });
 
@@ -194,7 +262,7 @@ Return JSON only, no markdown code blocks.`;
   }
 }
 
-// ─── Step 3: Send Email via Resend ───
+// ─── Send Email via Resend ───
 
 async function sendEmail(html, date) {
   if (DRY_RUN) {
@@ -252,6 +320,11 @@ async function main() {
     console.error('ERROR: RESEND_API_KEY not set (use DRY_RUN=true to skip email)');
     process.exit(1);
   }
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
+    console.error('ERROR: Google OAuth credentials not set (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN)');
+    console.error('Run: node scripts/google-auth-setup.mjs to generate a refresh token');
+    process.exit(1);
+  }
 
   // Skip weekends
   const dayOfWeek = new Date().getDay();
@@ -260,8 +333,8 @@ async function main() {
     process.exit(0);
   }
 
-  // Step 1: Calendar
-  const events = await fetchCalendar();
+  // Step 1: Calendar (direct Google API)
+  const events = await fetchCalendarDirect();
 
   if (events.length === 0) {
     log('No external meetings today. Sending summary email.');
@@ -275,7 +348,7 @@ async function main() {
     process.exit(0);
   }
 
-  // Step 2: Research each meeting
+  // Step 2: Research each meeting (Anthropic + web search)
   const results = [];
   for (const meeting of events) {
     const { external } = classifyContacts(meeting.attendees);

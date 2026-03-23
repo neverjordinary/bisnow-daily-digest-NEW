@@ -1,9 +1,9 @@
 // Anthropic API client for server-side usage
-// Uses the same MCP server approach as the browser app
+// Uses web_search built-in tool (no MCP servers needed)
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-export async function callAnthropicAPI({ apiKey, system, userMessage, mcpServers = [], tools = [], maxTokens = 4096 }) {
+export async function callAnthropicAPI({ apiKey, system, userMessage, tools = [], maxTokens = 4096 }) {
   const body = {
     model: 'claude-sonnet-4-20250514',
     max_tokens: maxTokens,
@@ -11,21 +11,24 @@ export async function callAnthropicAPI({ apiKey, system, userMessage, mcpServers
     messages: [{ role: 'user', content: userMessage }],
   };
 
-  if (mcpServers.length > 0) {
-    body.mcp_servers = mcpServers;
-  }
   if (tools.length > 0) {
     body.tools = tools;
   }
 
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2025-01-01',
+  };
+
+  // Only add beta header if using web search (required for web_search tool)
+  if (tools.some(t => t.type?.startsWith('web_search'))) {
+    headers['anthropic-beta'] = 'web-search-2025-03-05';
+  }
+
   const response = await fetch(ANTHROPIC_API_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2025-01-01',
-      'anthropic-beta': 'mcp-client-2025-04-04',
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
