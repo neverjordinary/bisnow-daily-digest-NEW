@@ -4,7 +4,7 @@ import { callAnthropicAPI, extractText, parseJSON } from './lib/anthropic.mjs';
 import { ALL_FLORIDA_EVENTS, EVENT_PACKAGES, DIGITAL_PRODUCTS, INTERNAL_DOMAINS, TARGET_AUDIENCE_MAP } from './lib/data.mjs';
 import { generateDigestEmail } from './lib/email-template.mjs';
 
-const SCRIPT_VERSION = '2026-03-23-v3';
+const SCRIPT_VERSION = '2026-03-23-v4';
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -48,9 +48,14 @@ function normalizeDomain(email = '') {
   return email.split('@')[1]?.toLowerCase().trim() || '';
 }
 
+function isInternalDomain(domain = '') {
+  return INTERNAL_DOMAINS.includes(domain) || domain.endsWith('.bisnow.com');
+}
+
 function isExcludedDomain(domain = '') {
   if (!domain) return true;
   if (EXCLUDED_DOMAINS.has(domain)) return true;
+  if (isInternalDomain(domain)) return true;
 
   const blockedSuffixes = [
     '.calendar.google.com',
@@ -66,7 +71,7 @@ function isExcludedDomain(domain = '') {
 function getBestExternalContacts(attendees = []) {
   const external = (attendees || []).filter(a => {
     const domain = normalizeDomain(a.email);
-    return domain && !INTERNAL_DOMAINS.includes(domain);
+    return domain && !isInternalDomain(domain);
   });
 
   const good = external.filter(a => !isExcludedDomain(normalizeDomain(a.email)));
@@ -113,7 +118,7 @@ function classifyContacts(attendees) {
 
   for (const a of attendees || []) {
     const domain = normalizeDomain(a.email);
-    if (INTERNAL_DOMAINS.includes(domain)) {
+    if (isInternalDomain(domain)) {
       internal.push(a);
     } else if (domain) {
       external.push(a);
@@ -201,7 +206,7 @@ async function fetchCalendarDirect() {
 
     const hasExternal = attendees.some(a => {
       const domain = normalizeDomain(a.email);
-      return domain && !INTERNAL_DOMAINS.includes(domain);
+      return domain && !isInternalDomain(domain);
     });
 
     if (!hasExternal) continue;
@@ -411,42 +416,6 @@ Rules:
         icebreaker: '',
       };
     }
-
-    log(`  Failed to research ${domain}: ${msg}`);
-    return {
-      contacts: contactsToUse.map(c => ({
-        name: c.name || 'Unknown',
-        title: 'Unknown',
-        company: domain,
-        linkedin_url: '',
-        email: c.email,
-      })),
-      company: {
-        name: domain,
-        description: 'Research unavailable',
-        hq: 'Unknown',
-        size_estimate: 'Unknown',
-        cre_relevance: 'Unknown',
-        florida_presence: 'Unknown',
-        primary_markets: [],
-      },
-      sponsorship_intel: {
-        past_cre_sponsorships: [],
-        current_sponsorships: [],
-        advertising_evidence: [],
-        past_bisnow_sponsor: false,
-      },
-      recent_news: [],
-      match_score: 0,
-      match_reasoning: 'Research data unavailable',
-      best_fit_events: [],
-      recommended_products: [],
-      national_opportunity: null,
-      target_audience: { primary: [], secondary: [], pitch_rationale: '' },
-      icebreaker: '',
-    };
-  }
-}
 
     log(`  Failed to research ${domain}: ${msg}`);
     return {
