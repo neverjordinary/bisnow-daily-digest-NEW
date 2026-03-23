@@ -20,6 +20,7 @@ const GOOGLE_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
 const EXCLUDED_DOMAINS = new Set([
   'group.calendar.google.com',
   'calendar.google.com',
+  'app.bisnow.com',
   'google.com',
   'gmail.com',
   'yahoo.com',
